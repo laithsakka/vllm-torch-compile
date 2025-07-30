@@ -9,7 +9,8 @@ from types import CodeType
 from typing import Optional
 
 import torch
-
+from torch._dynamo.eval_frame import _debug_get_cache_entry_list
+import inspect
 import vllm.envs as envs
 from vllm.config import CompilationLevel, get_current_vllm_config
 from vllm.logger import init_logger
@@ -75,8 +76,8 @@ class TorchCompileWrapperWithCustomDispatcher:
             fullgraph=envs.VLLM_TEST_DYNAMO_FULLGRAPH_CAPTURE,
             backend=backend,
             options=options)
-
-        torch._dynamo.convert_frame.register_bytecode_hook(self.bytecode_hook)
+        if not self.compilation_config.avoid_byte_code_hook:
+            torch._dynamo.convert_frame.register_bytecode_hook(self.bytecode_hook)
 
     def __call__(self, *args, **kwargs):
         if not self.compiled:
@@ -85,10 +86,34 @@ class TorchCompileWrapperWithCustomDispatcher:
                 self.original_code_object)
             self.compiled = True
 
-        if (torch.__version__ >= "2.8" or self.compilation_config.level
+            result = self._compiled_callable(*args, **kwargs)
+            if not self.compilation_config.avoid_byte_code_hook and self.compilation_config.eval_shape_guards:
+                assert torch.__version__ >= "2.8" 
+                signature = inspect.signature(self.forward)
+                self.param_names = list(signature.parameters.keys())
+                self.guard_manager = _debug_get_cache_entry_list(
+                    self.forward)[0].guard_manager
+                print("guards are:")
+                print(self.guard_manager)
+            return result
+
+        if (self.compilation_config.avoid_byte_code_hook or  self.compilation_config.level
                 == CompilationLevel.DYNAMO_AS_IS):
-            return self._compiled_callable(*args, **kwargs)
+                # print("using legit compile path")
+                return self._compiled_callable(*args, **kwargs)
         else:
+            # print("using byte code hook compile path")
+
+            # The guard function expects a dictionary 'L' that contains all the variables
+            # from the frame where the function was originally called
+            if self.compilation_config.eval_shape_guards:
+                L = {}
+                for i, arg in enumerate(args):
+                    if i < len(self.param_names):
+                        L[self.param_names [i]] = arg
+                    else:
+                        L[f"arg{i}"] = arg
+                assert self.guard_manager.check(L)
             with self._dispatch_to_compiled_code():
                 return self.forward(*args, **kwargs)
 
@@ -115,9 +140,9 @@ class TorchCompileWrapperWithCustomDispatcher:
             return
 
         # we do not use compiled_code for torch.__version__ >= 2.8
-        if torch.__version__ < "2.8":
-            assert self.compiled_code is None
-            self.compiled_code = new_code
+        # if torch.__version__ < "2.8":
+        #     assert self.compiled_code is None
+        self.compiled_code = new_code
 
         local_cache_dir = self.vllm_config.compilation_config.local_cache_dir
         if isinstance(local_cache_dir, str):

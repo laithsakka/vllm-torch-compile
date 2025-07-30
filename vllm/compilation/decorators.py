@@ -176,8 +176,10 @@ def _support_torch_compile(
                 if isinstance(arg, torch.Tensor):
                     # In case dims is specified with negative indexing
                     dims = [arg.ndim + dim if dim < 0 else dim for dim in dims]
-
-                    torch._dynamo.mark_dynamic(arg, dims)
+                    if mod.vllm_config.compilation_config.use_unbacked:
+                        torch._dynamo.decorators.mark_unbacked(arg, dims)
+                    else:
+                        torch._dynamo.mark_dynamic(arg, dims)
                 elif isinstance(arg, IntermediateTensors):
                     for tensor in arg.tensors.values():
                         # In case dims is specified with negative indexing
@@ -185,7 +187,10 @@ def _support_torch_compile(
                             tensor.ndim + dim if dim < 0 else dim
                             for dim in dims
                         ]
-                        torch._dynamo.mark_dynamic(tensor, dims)
+                        if mod.vllm_config.compilation_config.use_unbacked:
+                            torch._dynamo.decorators.mark_unbacked(tensor, dims)
+                        else:
+                            torch._dynamo.mark_dynamic(tensor, dims)
                 else:
                     raise ValueError(
                         "Unsupported dynamic dimensions"

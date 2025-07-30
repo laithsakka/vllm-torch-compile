@@ -4067,7 +4067,11 @@ class CompilationConfig:
     """A list of ops to split the full graph into subgraphs, used in piecewise
     compilation."""
 
-    eval_shape_guards: bool = False
+    avoid_byte_code_hook: bool = True
+    
+    use_unbacked: bool = False
+
+    eval_shape_guards: bool = True
     """
     When enabled, TorchCompileWrapperWithCustomDispatcher evaluates shape 
     guards on each incoming batch, while skipping other guards, excluding 
@@ -4187,7 +4191,8 @@ class CompilationConfig:
         factors.append(self.use_inductor)
         factors.append(self.inductor_compile_config)
         factors.append(self.inductor_passes)
-        factors.append(self.pass_config.uuid())
+        factors.append(self.pass_config.uuid())        
+        # factors.append(self.use_unbacked)
         return hashlib.sha256(str(factors).encode()).hexdigest()
 
     def __repr__(self) -> str:

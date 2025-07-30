@@ -151,6 +151,8 @@ class CompilerManager:
         compilation_counter.num_backend_compilations += 1
 
         # try to load from the cache
+        # import fbvscode
+        # fbvscode.set_trace()
         compiled_graph = self.load(graph, example_inputs, graph_index,
                                    runtime_shape)
         if compiled_graph is not None:
